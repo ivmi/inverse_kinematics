@@ -3,9 +3,10 @@ Module for diplaying 6DOF robot.
 """
 
 import warnings
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    from IPython.html import widgets
+#with warnings.catch_warnings():
+#    warnings.simplefilter("ignore")
+#    from IPython.html import widgets
+from ipywidgets import widgets
 import time
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,6 +36,8 @@ class RobotGUI(widgets.Box):
         super(RobotGUI, self).__init__(*args, **kwargs)
         
     def update_angles(self):
+        self.manip.children[0].position = (self.angles[5]*20, 20, 0)
+        self.manip.children[1].position = (-self.angles[5]*20, 20, 0)
         self.quaternion_from_axis_angle(self.manip, [0,1,0], self.angles[4])
         self.quaternion_from_axis_angle(self.link3, [0,0,1], self.angles[3])
         self.quaternion_from_axis_angle(self.link2, [0,0,1], self.angles[2])
@@ -43,8 +46,9 @@ class RobotGUI(widgets.Box):
 
     def create_scene(self):
         #manipulator
-        manip_g = tjs.Mesh(geometry=tjs.BoxGeometry(width=40.0, height=10.0, depth=40.0), material=tjs.LambertMaterial(color='red'), position=[0,5.0,0])
-        self.manip = tjs.Object3d(children=[manip_g], position=[0,self.links[2],0])
+        manip_g1 = tjs.Mesh(geometry=tjs.BoxGeometry(width=5.0, height=40.0, depth=40.0), material=tjs.LambertMaterial(color='red'), position=[50,20.0,0])
+        manip_g2 = tjs.Mesh(geometry=tjs.BoxGeometry(width=5.0, height=40.0, depth=40.0), material=tjs.LambertMaterial(color='red'), position=[-50,20.0,0])
+        self.manip = tjs.Object3d(children=[manip_g1, manip_g2], position=[0,self.links[2],0])
 
         #link 3
         link3_g = tjs.Mesh(geometry=tjs.BoxGeometry(width=20.0, height=self.links[2], depth=20.0), material=tjs.LambertMaterial(color='blue'), position=[0,self.links[2]/2,0])
@@ -69,7 +73,7 @@ class RobotGUI(widgets.Box):
 
         objlist = [base, self.rot0, tjs.AmbientLight(color=0x777777)]
         scene = tjs.Scene(children=objlist)
-        c = tjs.PerspectiveCamera(position=[0,300,800], up=[0,1,0], children=[tjs.DirectionalLight(color='white', 
+        c = tjs.PerspectiveCamera(position=[0,300,800], up=[0,1,0], far = 30000.0, children=[tjs.DirectionalLight(color='white', 
                                 position=[300,500,100], intensity=0.5)])
 
         
@@ -89,8 +93,168 @@ class RobotGUI(widgets.Box):
         self.oc.target = target
         self.oc.controlling.position = eye
         self.oc.controlling.quaternion = self.oc.target + [1] # nasty hack to force camera quat update
-        
 
+        
+class FKGUI(widgets.FlexBox):
+    def __init__(self, robot_gui, *args, **kwargs):
+        # create sliders for angle selection 
+        self.robot_gui = robot_gui
+        
+        spacer = widgets.HTML(value="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;")
+        self.fs0 = widgets.FloatSlider(
+            value=0.0,
+            min=0,
+            max=np.pi,
+            step=0.1,
+            description='a0',
+            orientation='vertical',
+            width='148px',
+        )
+        
+        self.fs1 = widgets.FloatSlider(
+            value=0.0,
+            min=-np.pi,
+            max=np.pi,
+            step=0.1,
+            description='a1',
+            orientation='vertical',
+        )
+
+        self.fs2 = widgets.FloatSlider(
+            value=0.0,
+            min=-np.pi,
+            max=np.pi,
+            step=0.1,
+            description='a2',
+            orientation='vertical',
+        )
+
+        self.fs3 = widgets.FloatSlider(
+            value=0.0,
+            min=-np.pi,
+            max=np.pi,
+            step=0.1,
+            description='a3',
+            orientation='vertical',
+        )
+        
+        self.fs4 = widgets.FloatSlider(
+            value=0.0,
+            min=-np.pi,
+            max=np.pi,
+            step=0.1,
+            description='a4',
+            orientation='vertical',
+        )
+
+        self.fs5 = widgets.FloatSlider(
+            value=0.0,
+            min=0,
+            max=1,
+            step=0.1,
+            description='a5',
+            orientation='vertical',
+        )
+        
+        self.fs0.on_trait_change(self.on_val_change, 'value')
+        self.fs1.on_trait_change(self.on_val_change, 'value')
+        self.fs2.on_trait_change(self.on_val_change, 'value')
+        self.fs3.on_trait_change(self.on_val_change, 'value')
+        self.fs4.on_trait_change(self.on_val_change, 'value')
+        self.fs5.on_trait_change(self.on_val_change, 'value')
+
+        
+        kwargs["children"]=[self.fs0, spacer, self.fs1, spacer, self.fs2, spacer, self.fs3, spacer, self.fs4, spacer, self.fs5]
+        kwargs["orientation"] = 'horizontal'
+        super(FKGUI, self).__init__(*args, **kwargs)
+    
+    def on_val_change(self, name, value):
+        self.robot_gui.angles = (self.fs0.value, self.fs1.value, self.fs2.value, self.fs3.value, self.fs4.value, self.fs5.value)
+
+def inv_kin(p, ga, l=[100,100,100]):
+    w = np.array([0]*4,dtype=float) #horizontal coordinate
+    z = np.array([0]*4,dtype=float) #vertical coordinate
+
+    gripper_angle=ga
+
+    w[3] = np.sqrt ( np.square ( p[2] ) + np.square ( p[0] )) 
+    z[3] = p[1]
+
+    w[2] = w[3] - l[2] * np.cos(gripper_angle)
+    z[2] = z[3] - l[2] * np.sin(gripper_angle)
+
+    l12 = np.sqrt ( np.square ( w[2] ) + np.square ( z[2] ))
+    a12 = np.arctan2(z[2], w[2])
+
+    a = [0]*4
+    a[0] = np.arctan2(p[0],p[2])
+    a[1] = np.arccos ( ( np.square( l[0] ) + np.square ( l12 ) - np.square ( l[1])) / (2 * l[0] * l12 )) + a12
+    w[1] = l[0] * np.cos(a[1])
+    z[1] = l[0] * np.sin(a[1])
+    a[2] = np.arctan2 ( ( z[2] - z[1] ) , ( w[2] - w[1] ) ) - a[1]
+    a[3] = gripper_angle - a[1] - a[2]
+  
+    a[1]=a[1]-np.pi/2
+    return a        
+        
+class IKGUI(widgets.FlexBox):
+    def __init__(self, robot_gui, *args, **kwargs):
+        # create sliders for angle selection 
+        self.robot_gui = robot_gui
+        
+        spacer = widgets.HTML(value="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;")
+        self.fs0 = widgets.FloatSlider(
+            value=0.0,
+            min=0,
+            max=400,
+            step=0.1,
+            description='x',
+            orientation='vertical',
+            width='148px',
+        )
+        
+        self.fs1 = widgets.FloatSlider(
+            value=0.0,
+            min=0,
+            max=400,
+            step=0.1,
+            description='y',
+            orientation='vertical',
+        )
+
+        self.fs2 = widgets.FloatSlider(
+            value=0.0,
+            min=0,
+            max=400,
+            step=0.1,
+            description='z',
+            orientation='vertical',
+        )
+
+        self.fs3 = widgets.FloatSlider(
+            value=0.0,
+            min=-np.pi,
+            max=np.pi,
+            step=0.1,
+            description='gripper angle',
+            orientation='vertical',
+        )
+        
+        self.fs0.on_trait_change(self.on_val_change, 'value')
+        self.fs1.on_trait_change(self.on_val_change, 'value')
+        self.fs2.on_trait_change(self.on_val_change, 'value')
+        self.fs3.on_trait_change(self.on_val_change, 'value')
+        
+        kwargs["children"]=[self.fs0, spacer, self.fs1, spacer, self.fs2, spacer, self.fs3]
+        kwargs["orientation"] = 'horizontal'
+        super(IKGUI, self).__init__(*args, **kwargs)
+    
+    def on_val_change(self, name, value):
+        ang = inv_kin([self.fs0.value, self.fs1.value, self.fs2.value], self.fs3.value, self.robot_gui.links)
+        self.robot_gui.angles = ang + [0,0]
+        #self.robot_gui.angles = (self.fs0.value, self.fs1.value, self.fs2.value, self.fs3.value, self.fs4.value, self.fs5.value)        
+        
+        
 class Ticker(object):
     def __init__(self, period, cb_update=None):
         self.period = period
