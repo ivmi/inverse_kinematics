@@ -5,4 +5,6 @@ Prerequisites:
   - jupyter notebook
   - numpy
   - pythreejs extension
-  
+
+Screenshot  
+![alt tag](Screenshot1.png)
